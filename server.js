@@ -18,6 +18,10 @@ const PORT = 3000;
 // 这是我们当前阶段的“数据库”，用一个简单的对象变量代替 Redis
 const rooms = {};
 
+// 心跳检测参数
+const PING_INTERVAL = 30 * 1000; // 每 30 秒发送一次 Ping
+const PING_TIMEOUT = 60 * 1000;  // 60 秒内未收到 Pong 则认为连接死亡
+
 // 辅助函数：向指定房间广播观众数量
 const broadcastViewerCount = (room) => {
     if (!room || !room.host || room.host.readyState !== room.host.OPEN) return;
@@ -97,6 +101,13 @@ wss.on('connection', (ws, req) => {
 
     console.log('一个新的客户端连接了');
 
+    // 为每个新连接初始化心跳状态
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+        console.log(`收到客户端 ${ws.username || '未知'} 的 Pong 回复。`); // 添加日志
+    });
+
     // 监听来自客户端的消息
     ws.on('message', (message) => {
         let parsedMessage;
@@ -113,7 +124,7 @@ wss.on('connection', (ws, req) => {
             // 当收到 'create_room' 类型的消息时
             case 'create_room':
                 console.log('收到创建房间的请求');
-                
+
                 // 生成一个简单且唯一的房间ID
                 const roomId = `room_${Date.now()}`;
                 ws.isHost = true; // 给主播的连接实例做一个标记
@@ -148,7 +159,7 @@ wss.on('connection', (ws, req) => {
                 // 检查房间是否存在且有主播
                 if (roomToJoin && roomToJoin.host) {
                     console.log(`用户 ${username} 正在加入房间 ${roomIdToJoin}`);
-                    
+
                     // 将观众的 WebSocket 实例添加到房间的 viewers 集合中
                     roomToJoin.viewers.add(ws);
                     ws.roomId = roomIdToJoin; // 记录该观众所在的房间ID
@@ -229,7 +240,7 @@ wss.on('connection', (ws, req) => {
                 if (ws.isHost && rooms[hostRoomId]) {
                     console.log(`主播 ${ws.username} 主动关闭房间 ${hostRoomId}`);
                     // 主动调用连接关闭处理函数，后面的逻辑会复用
-                    ws.close(); 
+                    ws.close();
                 }
                 break;
 
@@ -294,7 +305,7 @@ wss.on('connection', (ws, req) => {
 
         // 判断断开的是主播还是观众
         if (ws.isHost) {
-            // --- 主播离开了 --- 
+            // --- 主播离开了 ---
             console.log(`主播 ${ws.username} 离开了房间 ${closedRoomId}，正在关闭房间...`);
             const closeMessage = JSON.stringify({ type: 'room_closed', payload: { message: '主播已结束直播，房间已关闭。' } });
 
@@ -327,7 +338,7 @@ wss.on('connection', (ws, req) => {
                 type: 'system_message',
                 payload: { content: `${ws.username} 离开了直播间。` }
             });
-            
+
             // 只需要发给主播和其他在线的观众
             if (room.host.readyState === room.host.OPEN) {
                 room.host.send(leaveMessage);
@@ -361,4 +372,21 @@ app.use(express.static(__dirname));
 // 启动服务器
 server.listen(PORT, () => {
   console.log(`服务器已启动，正在监听 http://localhost:${PORT}`);
+
+  // 启动心跳检测定时器
+  setInterval(() => {
+    wss.clients.forEach(ws => {
+      if (ws.isAlive === false) {
+        // 如果上次 Ping 后没有收到 Pong，则终止连接
+        console.log(`检测到僵尸连接，终止客户端 ${ws.username || '未知'}`);
+        return ws.terminate();
+      }
+
+      // 标记为未收到 Pong，并发送 Ping
+      ws.isAlive = false;
+      ws.ping(() => {
+        console.log(`向客户端 ${ws.username || '未知'} 发送 Ping。`)// 添加日志
+      });
+    });
+  }, PING_INTERVAL); // 每隔 PING_INTERVAL 发送一次 Ping
 });
