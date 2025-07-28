@@ -1,4 +1,3 @@
-
 // 引入必要的模块
 const express = require('express');
 const http = require('http');
@@ -15,9 +14,81 @@ const wss = new WebSocketServer({ server });
 const PORT = 3000;
 
 // 存储所有直播间信息。
-// 结构: { roomId: { host: WebSocket, viewers: Set<WebSocket> } }
+// 结构: { roomId: { host: WebSocket, viewers: Set<WebSocket>, typingUsers: Set<string> } }
 // 这是我们当前阶段的“数据库”，用一个简单的对象变量代替 Redis
 const rooms = {};
+
+// 辅助函数：向指定房间广播观众数量
+const broadcastViewerCount = (room) => {
+    if (!room || !room.host || room.host.readyState !== room.host.OPEN) return;
+    const count = room.viewers.size;
+    const message = JSON.stringify({
+        type: 'viewer_count_update',
+        payload: { count }
+    });
+
+    room.host.send(message);
+    room.viewers.forEach(viewer => {
+        if (viewer.readyState === viewer.OPEN) {
+            viewer.send(message);
+        }
+    });
+};
+
+// 辅助函数：向指定房间广播当前的用户列表
+const broadcastUserList = (room) => {
+    if (!room || !room.host || room.host.readyState !== room.host.OPEN) return;
+
+    // 获取主播用户名
+    const hostUsername = room.host.username;
+    // 获取所有观众的用户名
+    const viewerUsernames = Array.from(room.viewers).map(viewer => viewer.username);
+
+    const userList = [hostUsername, ...viewerUsernames];
+
+    const message = JSON.stringify({
+        type: 'user_list_update',
+        payload: { users: userList }
+    });
+
+    // 向房间里的每个人发送最新的用户列表
+    room.host.send(message);
+    room.viewers.forEach(viewer => {
+        if (viewer.readyState === viewer.OPEN) {
+            viewer.send(message);
+        }
+    });
+};
+
+// 辅助函数：向指定房间广播正在输入的用户列表
+const broadcastTypingUsers = (room) => {
+    if (!room || !room.host || room.host.readyState !== room.host.OPEN) return;
+
+    const typingUsernames = [];
+    // 检查主播是否正在输入
+    if (room.host.isTyping) {
+        typingUsernames.push(room.host.username);
+    }
+    // 检查观众们是否正在输入
+    room.viewers.forEach(viewer => {
+        if (viewer.isTyping) {
+            typingUsernames.push(viewer.username);
+        }
+    });
+
+    const message = JSON.stringify({
+        type: 'typing_status_update',
+        payload: { typingUsers: typingUsernames }
+    });
+
+    // 向房间里的每个人广播
+    room.host.send(message);
+    room.viewers.forEach(viewer => {
+        if (viewer.readyState === viewer.OPEN) {
+            viewer.send(message);
+        }
+    });
+};
 
 // 当有新的 WebSocket 连接建立时，执行此回调函数
 wss.on('connection', (ws, req) => {
@@ -47,6 +118,7 @@ wss.on('connection', (ws, req) => {
                 const roomId = `room_${Date.now()}`;
                 ws.isHost = true; // 给主播的连接实例做一个标记
                 ws.roomId = roomId; // 方便后续查找
+                ws.username = `host_${Math.random().toString(36).slice(2, 7)}`; // 为主播生成一个用户名
 
                 // 在 rooms 对象中存储这个新房间的信息
                 rooms[roomId] = {
@@ -62,6 +134,10 @@ wss.on('connection', (ws, req) => {
                 };
                 ws.send(JSON.stringify(successMessage));
                 console.log(`房间 ${roomId} 已创建`);
+
+                // 房间创建后，立即广播用户列表和观众数量（主播自己也算一个用户）
+                broadcastViewerCount(rooms[roomId]);
+                broadcastUserList(rooms[roomId]);
                 break;
 
             // 当收到 'join_room' 类型的消息时
@@ -91,11 +167,20 @@ wss.on('connection', (ws, req) => {
                     const messageString = JSON.stringify(welcomeMessage);
 
                     // 发送给主播
-                    roomToJoin.host.send(messageString);
+                    if (roomToJoin.host.readyState === roomToJoin.host.OPEN) {
+                        roomToJoin.host.send(messageString);
+                    }
                     // 发送给所有其他观众
                     roomToJoin.viewers.forEach(viewer => {
-                        viewer.send(messageString);
+                        if (viewer.readyState === viewer.OPEN) {
+                            viewer.send(messageString);
+                        }
                     });
+
+                    // 广播最新的观众人数
+                    broadcastViewerCount(roomToJoin);
+                    // 广播最新的用户列表
+                    broadcastUserList(roomToJoin);
 
                 } else {
                     // 如果房间不存在，则告知客户端加入失败
@@ -126,10 +211,70 @@ wss.on('connection', (ws, req) => {
                     const messageString = JSON.stringify(chatMessage);
 
                     // 向房间内的每个人广播这条消息
-                    room.host.send(messageString); // 发给主播
+                    if (room.host.readyState === room.host.OPEN) {
+                        room.host.send(messageString); // 发给主播
+                    }
                     room.viewers.forEach(viewer => { // 发给所有观众
-                        viewer.send(messageString);
+                        if (viewer.readyState === viewer.OPEN) {
+                            viewer.send(messageString);
+                        }
                     });
+                }
+                break;
+
+            // 当主播主动要求关闭房间时
+            case 'close_room':
+                const hostRoomId = ws.roomId;
+                // 验证发起者是主播
+                if (ws.isHost && rooms[hostRoomId]) {
+                    console.log(`主播 ${ws.username} 主动关闭房间 ${hostRoomId}`);
+                    // 主动调用连接关闭处理函数，后面的逻辑会复用
+                    ws.close(); 
+                }
+                break;
+
+            // 当主播发送公告时
+            case 'host_announcement':
+                const announcerRoomId = ws.roomId;
+                const announcerRoom = rooms[announcerRoomId];
+
+                // 安全检查：只有主播才能发送公告
+                if (ws.isHost && announcerRoom) {
+                    console.log(`[房间 ${announcerRoomId}] 主播 ${ws.username} 发布公告: ${parsedMessage.payload.content}`);
+
+                    const announcementMessage = {
+                        type: 'new_announcement',
+                        payload: {
+                            content: `📢 ${parsedMessage.payload.content}` // Add an icon for emphasis
+                        }
+                    };
+                    const messageString = JSON.stringify(announcementMessage);
+
+                    // 向房间内的每个人广播
+                    if (announcerRoom.host.readyState === announcerRoom.host.OPEN) {
+                        announcerRoom.host.send(messageString);
+                    }
+                    announcerRoom.viewers.forEach(viewer => {
+                        if (viewer.readyState === viewer.OPEN) {
+                            viewer.send(messageString);
+                        }
+                    });
+                }
+                break;
+
+            // 当客户端发送 '开始输入' 状态时
+            case 'start_typing':
+                if (ws.roomId && rooms[ws.roomId]) {
+                    ws.isTyping = true; // 标记该连接正在输入
+                    broadcastTypingUsers(rooms[ws.roomId]);
+                }
+                break;
+
+            // 当客户端发送 '停止输入' 状态时
+            case 'stop_typing':
+                if (ws.roomId && rooms[ws.roomId]) {
+                    ws.isTyping = false; // 标记该连接停止输入
+                    broadcastTypingUsers(rooms[ws.roomId]);
                 }
                 break;
 
@@ -140,8 +285,59 @@ wss.on('connection', (ws, req) => {
 
     // 监听连接关闭事件
     ws.on('close', () => {
-        console.log('一个客户端断开连接了');
-        // 后续需要在这里处理用户离开房间的逻辑
+        console.log(`客户端 ${ws.username || '未命名'} 断开连接了`);
+        const closedRoomId = ws.roomId;
+        if (!closedRoomId) return; // 如果这个连接不属于任何房间，则无需处理
+
+        const room = rooms[closedRoomId];
+        if (!room) return; // 如果房间已不存在，也无需处理
+
+        // 判断断开的是主播还是观众
+        if (ws.isHost) {
+            // --- 主播离开了 --- 
+            console.log(`主播 ${ws.username} 离开了房间 ${closedRoomId}，正在关闭房间...`);
+            const closeMessage = JSON.stringify({ type: 'room_closed', payload: { message: '主播已结束直播，房间已关闭。' } });
+
+            // 向所有观众发送房间关闭的消息
+            room.viewers.forEach(viewer => {
+                if (viewer.readyState === viewer.OPEN) {
+                    viewer.send(closeMessage);
+                }
+            });
+
+            // 从内存中删除整个房间
+            delete rooms[closedRoomId];
+            console.log(`房间 ${closedRoomId} 已被成功删除。`);
+
+        } else {
+            // --- 普通观众离开了 ---
+            console.log(`观众 ${ws.username} 离开了房间 ${closedRoomId}`);
+            room.viewers.delete(ws); // 从观众集合中移除
+            ws.isTyping = false; // 确保离开时清除正在输入状态
+
+            // 广播最新的观众人数
+            broadcastViewerCount(room);
+            // 广播最新的用户列表
+            broadcastUserList(room);
+            // 广播最新的正在输入用户列表
+            broadcastTypingUsers(room);
+
+            // 广播该观众离开的消息
+            const leaveMessage = JSON.stringify({
+                type: 'system_message',
+                payload: { content: `${ws.username} 离开了直播间。` }
+            });
+            
+            // 只需要发给主播和其他在线的观众
+            if (room.host.readyState === room.host.OPEN) {
+                room.host.send(leaveMessage);
+            }
+            room.viewers.forEach(viewer => {
+                if (viewer.readyState === viewer.OPEN) {
+                    viewer.send(leaveMessage);
+                }
+            });
+        }
     });
 
     // 监听可能发生的错误
