@@ -6,140 +6,219 @@
     <title>直播聊天室</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; color: #333; }
         #app { width: 100%; max-width: 800px; height: 90vh; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        .center-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; text-align: center; }
-        .role-selection button, .host-view button { font-size: 1.2rem; padding: 0.8rem 1.5rem; margin: 0 1rem; cursor: pointer; border: none; border-radius: 8px; color: white; transition: all 0.3s; }
-        .role-selection button:hover, .host-view button:hover { transform: scale(1.05); }
+        .center-container { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; }
+        button { font-size: 1.1rem; padding: 0.6rem 1.2rem; margin: 0.5rem; cursor: pointer; border: none; border-radius: 8px; color: white; transition: all 0.3s; }
+        button:hover { transform: scale(1.05); }
         .btn-primary { background-color: #007bff; }
         .btn-primary:hover { background-color: #0056b3; }
         .btn-success { background-color: #28a745; }
         .btn-success:hover { background-color: #218838; }
         .btn-danger { background-color: #dc3545; }
         .btn-danger:hover { background-color: #c82333; }
-        .chat-container { flex-grow: 1; display: flex; flex-direction: column; padding: 1rem; overflow: hidden; }
+        .chat-container { flex-grow: 1; display: flex; flex-direction: column; padding: 1rem; overflow: hidden; width: 100%; box-sizing: border-box; }
         .messages { flex-grow: 1; overflow-y: auto; border: 1px solid #eee; padding: 1rem; margin-bottom: 1rem; list-style-type: none; }
+        .messages li { padding: 0.5rem; border-bottom: 1px solid #f0f0f0; }
+        .messages .system-message { text-align: center; color: #888; font-style: italic; }
+        .messages .chat-message .sender { font-weight: bold; }
+        .messages .chat-message .sender.host { color: #dc3545; }
+        .messages .chat-message .sender.viewer { color: #007bff; }
         .message-input { display: flex; }
         .message-input input { flex-grow: 1; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-        .message-input button { padding: 0.5rem 1rem; margin-left: 0.5rem; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
+        .message-input button { padding: 0.5rem 1rem; margin-left: 0.5rem; border-radius: 4px; }
+        .room-list ul { list-style: none; padding: 0; }
+        .room-list li { background: #e9ecef; padding: 1rem; margin-bottom: 0.5rem; border-radius: 5px; cursor: pointer; }
+        .room-list li:hover { background: #dee2e6; }
     </style>
 </head>
 <body>
     <div id="app">
-        <!-- 1. 角色选择界面 -->
+        <!-- 1. 角色选择 -->
         <div v-if="!role" class="center-container">
-            <div class="role-selection">
-                <h1>选择你的身份</h1>
-                <button @click="selectRole('host')" class="btn-primary">我是主播</button>
-                <button @click="selectRole('viewer')" class="btn-success">我是观众</button>
-            </div>
+            <h1>选择你的身份</h1>
+            <button @click="selectRole('host')" class="btn-primary">我是主播</button>
+            <button @click="selectRole('viewer')" class="btn-success">我是观众</button>
         </div>
 
-        <!-- 2. 主播端界面 -->
-        <div v-if="role === 'host'" class="host-view center-container" style="flex-direction: column;">
-            <!-- 2.1 主播未开播 -->
-            <div v-if="!roomInfo.id">
-                <h2>准备好开始直播了吗？</h2>
+        <!-- 2. 主播端 -->
+        <div v-if="role === 'host'" class="chat-container">
+            <div v-if="!roomInfo.id" class="center-container">
                 <button @click="createRoom" class="btn-primary">创建直播间</button>
             </div>
-            <!-- 2.2 主播已开播 -->
-            <div v-else class="chat-container">
+            <template v-else>
                 <h2>我的直播间 (ID: {{ roomInfo.id }})</h2>
-                <ul class="messages">
-                    <!-- 聊天消息将在这里显示 -->
-                    <li v-for="msg in messages">{{ msg.content }}</li>
+                <ul class="messages" ref="messagesContainer">
+                    <li v-for="msg in messages" :class="msg.type">
+                        <div v-if="msg.type === 'system-message'">{{ msg.content }}</div>
+                        <div v-else>
+                            <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
+                            <span>{{ msg.content }}</span>
+                        </div>
+                    </li>
                 </ul>
-                <div class="message-input">
-                    <input type="text" placeholder="和观众说点什么..." />
-                    <button>发送</button>
-                </div>
+                <form @submit.prevent="sendMessage" class="message-input">
+                    <input v-model="newMessage" type="text" placeholder="和观众说点什么..." required />
+                    <button type="submit" class="btn-primary">发送</button>
+                </form>
                 <button @click="closeRoom" class="btn-danger" style="margin-top: 1rem;">结束直播</button>
-            </div>
+            </template>
         </div>
 
-        <!-- 3. 观众端界面 -->
+        <!-- 3. 观众端 -->
         <div v-if="role === 'viewer'" class="center-container">
-            <h1>观众端 (开发中)</h1>
+            <div v-if="!roomInfo.id" class="room-list">
+                <h2>选择一个直播间加入</h2>
+                <ul v-if="activeRooms.length > 0">
+                    <li v-for="room in activeRooms" @click="joinRoom(room.id)">{{ room.name }}</li>
+                </ul>
+                <p v-else>当前没有正在直播的房间</p>
+                <button @click="fetchRooms">刷新列表</button>
+            </div>
+            <div v-else class="chat-container">
+                <h2>正在观看 (房间ID: {{ roomInfo.id }})</h2>
+                <ul class="messages" ref="messagesContainer">
+                     <li v-for="msg in messages" :class="msg.type">
+                        <div v-if="msg.type === 'system-message'">{{ msg.content }}</div>
+                        <div v-else>
+                            <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
+                            <span>{{ msg.content }}</span>
+                        </div>
+                    </li>
+                </ul>
+                <form @submit.prevent="sendMessage" class="message-input">
+                    <input v-model="newMessage" type="text" placeholder="和主播说点什么..." required />
+                    <button type="submit" class="btn-primary">发送</button>
+                </form>
+            </div>
         </div>
     </div>
 
     <script type="module">
-        const { createApp, ref, reactive } = Vue;
+        const { createApp, ref, reactive, nextTick } = Vue;
 
         createApp({
             setup() {
                 // ================== 响应式状态 ==================
-                const role = ref(null); // 当前角色: 'host' 或 'viewer'
-                const ws = ref(null);   // WebSocket 实例
-                const roomInfo = reactive({ id: null, message: '' }); // 房间信息
-                const messages = reactive([]); // 聊天消息
+                const role = ref(null);
+                const username = ref(null);
+                const ws = ref(null);
+                const roomInfo = reactive({ id: null });
+                const messages = reactive([]);
+                const activeRooms = reactive([]);
+                const newMessage = ref(''); // 绑定输入框内容
+                const messagesContainer = ref(null);
 
-                // ================== 方法 ==================
+                // ================== 通用方法 ==================
+                const scrollToBottom = () => {
+                    nextTick(() => {
+                        const container = messagesContainer.value;
+                        if (container) container.scrollTop = container.scrollHeight;
+                    });
+                };
 
-                // 初始化 WebSocket 连接
+                const addMessage = (msg) => {
+                    messages.push(msg);
+                    scrollToBottom();
+                };
+
+                const addSystemMessage = (content) => {
+                    addMessage({ content, type: 'system-message' });
+                }
+
                 const initWebSocket = () => {
-                    // 创建一个新的 WebSocket 连接到当前服务器
                     const socket = new WebSocket(`ws://${window.location.host}`);
-
-                    // 监听连接成功事件
-                    socket.onopen = () => {
-                        console.log('WebSocket 连接成功！');
-                    };
-
-                    // 监听从服务器收到的消息
+                    socket.onopen = () => console.log('WebSocket 连接成功！');
+                    socket.onclose = () => addSystemMessage('与服务器的连接已断开');
+                    socket.onerror = (error) => console.error('WebSocket 错误:', error);
                     socket.onmessage = (event) => {
                         const data = JSON.parse(event.data);
                         console.log('收到服务器消息:', data);
 
-                        // 根据消息类型处理
-                        if (data.type === 'room_created') {
-                            // 如果是房间创建成功的消息，更新房间信息
-                            roomInfo.id = data.roomId;
-                            roomInfo.message = data.message;
-                            messages.push({ content: `系统提示: ${data.message}` });
+                        switch (data.type) {
+                            case 'room_created':
+                                roomInfo.id = data.roomId;
+                                addSystemMessage(`房间创建成功！ID: ${data.roomId}`);
+                                break;
+                            case 'join_success':
+                                roomInfo.id = data.roomId;
+                                addSystemMessage(`成功加入房间 ${data.roomId}`);
+                                break;
+                            case 'system_message':
+                                addSystemMessage(data.payload.content);
+                                break;
+                            case 'new_chat_message':
+                                addMessage({ ...data.payload, type: 'chat-message' });
+                                break;
+                            case 'error':
+                                alert(`错误: ${data.message}`);
+                                break;
                         }
                     };
-
-                    // 监听连接关闭
-                    socket.onclose = () => console.log('WebSocket 连接已关闭');
-                    // 监听错误
-                    socket.onerror = (error) => console.error('WebSocket 错误:', error);
-
-                    ws.value = socket; // 保存 WebSocket 实例
+                    ws.value = socket;
                 };
 
-                // 选择角色
                 const selectRole = (selectedRole) => {
                     role.value = selectedRole;
-                    // 选择角色后，立即初始化 WebSocket 连接
+                    username.value = `${selectedRole}_${Math.random().toString(36).slice(2, 7)}`;
                     initWebSocket();
-                };
-
-                // 主播：创建房间
-                const createRoom = () => {
-                    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
-                        // 构造一个创建房间的消息对象
-                        const message = { type: 'create_room' };
-                        // 发送给服务器
-                        ws.value.send(JSON.stringify(message));
-                    } else {
-                        alert('WebSocket 未连接，请稍后重试。');
+                    if (selectedRole === 'viewer') {
+                        fetchRooms();
                     }
                 };
 
-                // 主播：结束直播 (功能待实现)
-                const closeRoom = () => {
-                    alert('结束直播功能待开发');
-                }
+                const sendMessage = () => {
+                    if (!newMessage.value.trim()) return; // 不发送空消息
+                    if (ws.value?.readyState === WebSocket.OPEN) {
+                        const message = {
+                            type: 'chat_message',
+                            payload: {
+                                content: newMessage.value
+                            }
+                        };
+                        ws.value.send(JSON.stringify(message));
+                        newMessage.value = ''; // 清空输入框
+                    } else {
+                        addSystemMessage('发送失败：未连接到服务器。');
+                    }
+                };
 
-                // ================== 返回给模板 ==================
+                // ================== 主播方法 ==================
+                const createRoom = () => {
+                    if (ws.value?.readyState === WebSocket.OPEN) {
+                        ws.value.send(JSON.stringify({ type: 'create_room' }));
+                    } else {
+                        alert('WebSocket 未连接');
+                    }
+                };
+
+                const closeRoom = () => alert('结束直播功能待开发');
+
+                // ================== 观众方法 ==================
+                const fetchRooms = async () => {
+                    try {
+                        const response = await fetch('/api/rooms');
+                        if (!response.ok) throw new Error('Network response was not ok');
+                        const roomsData = await response.json();
+                        activeRooms.splice(0, activeRooms.length, ...roomsData); // 高效更新数组
+                    } catch (error) {
+                        console.error('获取房间列表失败:', error);
+                        alert('无法加载直播间列表，请稍后重试。');
+                    }
+                };
+
+                const joinRoom = (roomId) => {
+                    if (ws.value?.readyState === WebSocket.OPEN) {
+                        const payload = { roomIdToJoin: roomId, username: username.value };
+                        ws.value.send(JSON.stringify({ type: 'join_room', payload }));
+                    } else {
+                        alert('WebSocket 未连接');
+                    }
+                };
+
                 return {
-                    role,
-                    roomInfo,
-                    messages,
-                    selectRole,
-                    createRoom,
-                    closeRoom
+                    role, username, roomInfo, messages, activeRooms, newMessage, messagesContainer,
+                    selectRole, createRoom, closeRoom, fetchRooms, joinRoom, sendMessage
                 };
             }
         }).mount('#app');
