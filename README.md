@@ -41,7 +41,7 @@
 首先，克隆这个项目到你的本地：
 
 ```bash
-git clone https://github.com/your-username/socket-io-example.git # 如果你上传到GitHub，请替换为你的仓库地址
+git clone https://github.com/535601882/socket-io-example.git # 如果你上传到GitHub，请替换为你的仓库地址
 cd socket-io-example
 ```
 
