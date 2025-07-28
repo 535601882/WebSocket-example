@@ -1,13 +1,13 @@
 {
   "name": "socket-io-example",
   "version": "1.0.0",
-  "description": "",
+  "description": "基于 Node.js 和原生 WebSocket 构建的实时直播聊天室原型",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["WebSocket"],
+  "author": "535601882@qq.com",
   "license": "ISC",
   "dependencies": {
     "express": "^5.1.0",
