@@ -28,8 +28,45 @@ wss.on('connection', (ws, req) => {
 
     // 监听来自客户端的消息
     ws.on('message', (message) => {
-        console.log('收到消息:', message.toString());
-        // 暂时只是打印，后续会在这里处理复杂的逻辑
+        let parsedMessage;
+        try {
+            // 我们约定所有消息都使用 JSON 格式，并进行解析
+            parsedMessage = JSON.parse(message);
+        } catch (e) {
+            console.error('收到了非JSON格式的消息:', message.toString());
+            return;
+        }
+
+        // 根据消息的 type 字段来判断意图
+        switch (parsedMessage.type) {
+            // 当收到 'create_room' 类型的消息时
+            case 'create_room':
+                console.log('收到创建房间的请求');
+                
+                // 生成一个简单且唯一的房间ID
+                const roomId = `room_${Date.now()}`;
+                ws.isHost = true; // 给主播的连接实例做一个标记
+                ws.roomId = roomId; // 方便后续查找
+
+                // 在 rooms 对象中存储这个新房间的信息
+                rooms[roomId] = {
+                    host: ws,       // 存储主播的 WebSocket 实例
+                    viewers: new Set() // 初始化一个空的观众集合
+                };
+
+                // 向主播客户端回传成功消息和房间ID
+                const successMessage = {
+                    type: 'room_created',
+                    roomId: roomId,
+                    message: `房间创建成功！ID: ${roomId}`
+                };
+                ws.send(JSON.stringify(successMessage));
+                console.log(`房间 ${roomId} 已创建`);
+                break;
+
+            default:
+                console.log('收到未知类型的消息:', parsedMessage);
+        }
     });
 
     // 监听连接关闭事件

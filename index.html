@@ -1,67 +1,145 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>直播聊天室 - 选择你的角色</title>
+    <title>直播聊天室</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
-        #app { text-align: center; }
-        .role-selection button {
-            font-size: 1.5rem;
-            padding: 1rem 2rem;
-            margin: 0 1rem;
-            cursor: pointer;
-            border: none;
-            border-radius: 8px;
-            background-color: #007bff;
-            color: white;
-            transition: background-color 0.3s, transform 0.2s;
-        }
-        .role-selection button:hover { background-color: #0056b3; transform: scale(1.05); }
-        .role-selection button:last-child { background-color: #28a745; }
-        .role-selection button:last-child:hover { background-color: #218838; }
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        #app { width: 100%; max-width: 800px; height: 90vh; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .center-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; text-align: center; }
+        .role-selection button, .host-view button { font-size: 1.2rem; padding: 0.8rem 1.5rem; margin: 0 1rem; cursor: pointer; border: none; border-radius: 8px; color: white; transition: all 0.3s; }
+        .role-selection button:hover, .host-view button:hover { transform: scale(1.05); }
+        .btn-primary { background-color: #007bff; }
+        .btn-primary:hover { background-color: #0056b3; }
+        .btn-success { background-color: #28a745; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+        .chat-container { flex-grow: 1; display: flex; flex-direction: column; padding: 1rem; overflow: hidden; }
+        .messages { flex-grow: 1; overflow-y: auto; border: 1px solid #eee; padding: 1rem; margin-bottom: 1rem; list-style-type: none; }
+        .message-input { display: flex; }
+        .message-input input { flex-grow: 1; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+        .message-input button { padding: 0.5rem 1rem; margin-left: 0.5rem; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="app">
-        <div v-if="!role" class="role-selection">
-            <h1>选择你的身份</h1>
-            <button @click="selectRole('host')">我是主播</button>
-            <button @click="selectRole('viewer')">我是观众</button>
+        <!-- 1. 角色选择界面 -->
+        <div v-if="!role" class="center-container">
+            <div class="role-selection">
+                <h1>选择你的身份</h1>
+                <button @click="selectRole('host')" class="btn-primary">我是主播</button>
+                <button @click="selectRole('viewer')" class="btn-success">我是观众</button>
+            </div>
         </div>
 
-        <!-- 主播界面将在这里渲染 -->
-        <div v-if="role === 'host'">
-            <h1>主播端 (开发中)</h1>
+        <!-- 2. 主播端界面 -->
+        <div v-if="role === 'host'" class="host-view center-container" style="flex-direction: column;">
+            <!-- 2.1 主播未开播 -->
+            <div v-if="!roomInfo.id">
+                <h2>准备好开始直播了吗？</h2>
+                <button @click="createRoom" class="btn-primary">创建直播间</button>
+            </div>
+            <!-- 2.2 主播已开播 -->
+            <div v-else class="chat-container">
+                <h2>我的直播间 (ID: {{ roomInfo.id }})</h2>
+                <ul class="messages">
+                    <!-- 聊天消息将在这里显示 -->
+                    <li v-for="msg in messages">{{ msg.content }}</li>
+                </ul>
+                <div class="message-input">
+                    <input type="text" placeholder="和观众说点什么..." />
+                    <button>发送</button>
+                </div>
+                <button @click="closeRoom" class="btn-danger" style="margin-top: 1rem;">结束直播</button>
+            </div>
         </div>
 
-        <!-- 观众界面将在这里渲染 -->
-        <div v-if="role === 'viewer'">
+        <!-- 3. 观众端界面 -->
+        <div v-if="role === 'viewer'" class="center-container">
             <h1>观众端 (开发中)</h1>
         </div>
     </div>
 
     <script type="module">
-        const { createApp, ref } = Vue;
+        const { createApp, ref, reactive } = Vue;
 
         createApp({
             setup() {
-                // 使用 ref 创建响应式变量来存储用户选择的角色
-                const role = ref(null); // 'host', 'viewer', or null
+                // ================== 响应式状态 ==================
+                const role = ref(null); // 当前角色: 'host' 或 'viewer'
+                const ws = ref(null);   // WebSocket 实例
+                const roomInfo = reactive({ id: null, message: '' }); // 房间信息
+                const messages = reactive([]); // 聊天消息
 
-                // 方法：当用户点击按钮时，更新角色状态
-                const selectRole = (selectedRole) => {
-                    console.log(`用户选择了: ${selectedRole}`);
-                    role.value = selectedRole;
+                // ================== 方法 ==================
+
+                // 初始化 WebSocket 连接
+                const initWebSocket = () => {
+                    // 创建一个新的 WebSocket 连接到当前服务器
+                    const socket = new WebSocket(`ws://${window.location.host}`);
+
+                    // 监听连接成功事件
+                    socket.onopen = () => {
+                        console.log('WebSocket 连接成功！');
+                    };
+
+                    // 监听从服务器收到的消息
+                    socket.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        console.log('收到服务器消息:', data);
+
+                        // 根据消息类型处理
+                        if (data.type === 'room_created') {
+                            // 如果是房间创建成功的消息，更新房间信息
+                            roomInfo.id = data.roomId;
+                            roomInfo.message = data.message;
+                            messages.push({ content: `系统提示: ${data.message}` });
+                        }
+                    };
+
+                    // 监听连接关闭
+                    socket.onclose = () => console.log('WebSocket 连接已关闭');
+                    // 监听错误
+                    socket.onerror = (error) => console.error('WebSocket 错误:', error);
+
+                    ws.value = socket; // 保存 WebSocket 实例
                 };
 
-                // 将变量和方法返回给模板使用
+                // 选择角色
+                const selectRole = (selectedRole) => {
+                    role.value = selectedRole;
+                    // 选择角色后，立即初始化 WebSocket 连接
+                    initWebSocket();
+                };
+
+                // 主播：创建房间
+                const createRoom = () => {
+                    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+                        // 构造一个创建房间的消息对象
+                        const message = { type: 'create_room' };
+                        // 发送给服务器
+                        ws.value.send(JSON.stringify(message));
+                    } else {
+                        alert('WebSocket 未连接，请稍后重试。');
+                    }
+                };
+
+                // 主播：结束直播 (功能待实现)
+                const closeRoom = () => {
+                    alert('结束直播功能待开发');
+                }
+
+                // ================== 返回给模板 ==================
                 return {
                     role,
-                    selectRole
+                    roomInfo,
+                    messages,
+                    selectRole,
+                    createRoom,
+                    closeRoom
                 };
             }
         }).mount('#app');
