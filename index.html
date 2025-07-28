@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -45,6 +44,7 @@
         .sidebar ul { list-style: none; padding: 0; }
         .sidebar li { padding: 0.25rem 0; }
         .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.8); display: flex; justify-content: center; align-items: center; text-align: center; backdrop-filter: blur(5px); }
+        .message-timestamp { font-size: 0.75em; color: #999; margin-left: 0.5em; }
     </style>
 </head>
 <body>
@@ -73,6 +73,7 @@
                             <div v-else-if="msg.type === 'chat-message'">
                                 <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
                                 <span>{{ msg.content }}</span>
+                                <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
                             </div>
                         </li>
                     </ul>
@@ -124,6 +125,7 @@
                             <div v-else-if="msg.type === 'chat-message'">
                                 <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
                                 <span>{{ msg.content }}</span>
+                                <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
                             </div>
                         </li>
                     </ul>
@@ -166,15 +168,20 @@
                 const newMessage = ref('');
                 const isRoomClosed = ref(false);
                 const viewerCount = ref(0);
-                const typingUsers = reactive([]); // 新增：正在输入的用户列表
+                const typingUsers = reactive([]);
                 const messagesContainer = ref(null);
 
-                let typingTimeout = null; // 用于控制停止输入状态的定时器
+                let typingTimeout = null;
+
+                // 重连机制相关变量
+                let reconnectAttempts = 0;
+                const MAX_RECONNECT_ATTEMPTS = 10; // 最大重连尝试次数
+                const INITIAL_RECONNECT_DELAY = 1000; // 初始重连延迟 1 秒
+                const MAX_RECONNECT_DELAY = 30000; // 最大重连延迟 30 秒
 
                 // ================== 计算属性 ==================
                 const typingUsersText = computed(() => {
                     if (typingUsers.length === 0) return '';
-                    // 过滤掉自己
                     const othersTyping = typingUsers.filter(u => u !== username.value);
                     if (othersTyping.length === 0) return '';
 
@@ -204,13 +211,54 @@
                     addMessage({ content, type: 'system-message' });
                 }
 
+                const formatTimestamp = (timestamp) => {
+                    if (!timestamp) return '';
+                    const date = new Date(timestamp);
+                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                };
+
                 const initWebSocket = () => {
+                    // 如果已经有连接，先关闭
+                    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+                        ws.value.close();
+                    }
+
                     const socket = new WebSocket(`ws://${window.location.host}`);
-                    socket.onopen = () => console.log('WebSocket 连接成功！');
+                    socket.onopen = () => {
+                        console.log('WebSocket 连接成功！');
+                        reconnectAttempts = 0; // 重置重连尝试次数
+                        // 如果是观众，并且之前已经加入了房间，尝试重新加入
+                        if (role.value === 'viewer' && roomInfo.id) {
+                            joinRoom(roomInfo.id); // 重新发送加入房间请求
+                        } else if (role.value === 'host' && roomInfo.id) {
+                            // 主播重连后，需要重新创建房间（或者说，服务器会识别到是同一个主播的重连）
+                            // 这里简化处理，如果主播重连，就当做是新开播，或者提示手动创建
+                            // 实际应用中，主播端重连逻辑会更复杂，可能需要服务器端保存会话状态
+                            addSystemMessage('主播端连接恢复，请重新创建直播间或等待服务器同步状态。');
+                            roomInfo.id = null; // 清除房间信息，让主播重新创建
+                        }
+                    };
                     socket.onclose = () => {
+                        console.log('WebSocket 连接已关闭');
+                        // 清除任何正在输入的定时器，防止重连后状态不一致
+                        if (typingTimeout) {
+                            clearTimeout(typingTimeout);
+                            typingTimeout = null;
+                        }
+
+                        // 如果不是房间已关闭状态，尝试重连
                         if (!isRoomClosed.value) {
-                           addSystemMessage('与服务器的连接已断开');
-                           isRoomClosed.value = true;
+                            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                                const delay = Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+                                addSystemMessage(`连接断开，尝试在 ${delay / 1000} 秒后重连... (第 ${reconnectAttempts + 1} 次尝试)`);
+                                setTimeout(() => {
+                                    reconnectAttempts++;
+                                    initWebSocket();
+                                }, delay);
+                            } else {
+                                addSystemMessage('连接失败，请检查网络或刷新页面。');
+                                isRoomClosed.value = true; // 标记为永久断开
+                            }
                         }
                     };
                     socket.onerror = (error) => console.error('WebSocket 错误:', error);
@@ -228,11 +276,10 @@
                                 addSystemMessage(`成功加入房间 ${data.roomId}`);
                                 break;
                             case 'system_message':
-                                addSystemMessage(data.payload.content);
+                                addMessage({ content: data.payload.content, type: 'system-message', timestamp: Date.now() });
                                 break;
                             case 'new_chat_message':
                                 addMessage({ ...data.payload, type: 'chat-message' });
-                                // 收到消息后，如果自己正在输入，则停止输入状态
                                 if (typingUsers.includes(username.value)) {
                                     sendStopTyping();
                                 }
@@ -243,6 +290,8 @@
                             case 'room_closed':
                                 addSystemMessage(data.payload.message);
                                 isRoomClosed.value = true;
+                                // 房间关闭后，不再尝试重连
+                                if (ws.value) ws.value.close();
                                 break;
                             case 'viewer_count_update':
                                 viewerCount.value = data.payload.count;
@@ -251,7 +300,6 @@
                                 userList.splice(0, userList.length, ...data.payload.users);
                                 break;
                             case 'typing_status_update':
-                                // 更新正在输入的用户列表
                                 typingUsers.splice(0, typingUsers.length, ...data.payload.typingUsers);
                                 break;
                             case 'error':
@@ -277,43 +325,35 @@
                         const message = { type: 'chat_message', payload: { content: newMessage.value } };
                         ws.value.send(JSON.stringify(message));
                         newMessage.value = '';
-                        sendStopTyping(); // 发送消息后停止输入状态
+                        sendStopTyping();
                     } else {
                         addSystemMessage('发送失败：未连接到服务器。');
                     }
                 };
 
-                // 发送 '开始输入' 状态
                 const sendStartTyping = () => {
                     if (ws.value?.readyState === WebSocket.OPEN && !typingUsers.includes(username.value)) {
                         ws.value.send(JSON.stringify({ type: 'start_typing' }));
                     }
                 };
 
-                // 发送 '停止输入' 状态
                 const sendStopTyping = () => {
-                    // 修正：移除 typingUsers.includes(username.value) 的判断
-                    // 只要连接打开，就尝试发送停止输入消息，让服务器作为状态的最终权威
                     if (ws.value?.readyState === WebSocket.OPEN) {
                         ws.value.send(JSON.stringify({ type: 'stop_typing' }));
                     }
                 };
 
-                // 处理输入事件
                 const handleTyping = () => {
                     if (isRoomClosed.value) return;
 
-                    // 如果当前没有在输入，则发送开始输入状态
                     if (!typingUsers.includes(username.value)) {
                         sendStartTyping();
                     }
 
-                    // 清除之前的定时器
                     if (typingTimeout) {
                         clearTimeout(typingTimeout);
                     }
 
-                    // 设置新的定时器，1.5秒后发送停止输入状态
                     typingTimeout = setTimeout(() => {
                         sendStopTyping();
                     }, 1500);
@@ -334,7 +374,7 @@
                         const message = { type: 'host_announcement', payload: { content: newMessage.value } };
                         ws.value.send(JSON.stringify(message));
                         newMessage.value = '';
-                        sendStopTyping(); // 发送公告后停止输入状态
+                        sendStopTyping();
                     } else {
                         addSystemMessage('发送失败：未连接到服务器。');
                     }
@@ -361,7 +401,6 @@
 
                 const joinRoom = (roomId) => {
                     if (ws.value?.readyState === WebSocket.OPEN) {
-                        // 修正：将 payload 包装在包含 type 的对象中
                         const message = { type: 'join_room', payload: { roomIdToJoin: roomId, username: username.value } };
                         ws.value.send(JSON.stringify(message));
                     } else {
@@ -371,7 +410,7 @@
 
                 return {
                     role, username, roomInfo, messages, activeRooms, userList, newMessage, isRoomClosed, viewerCount, typingUsers, messagesContainer,
-                    selectRole, createRoom, closeRoom, fetchRooms, joinRoom, sendMessage, sendAnnouncement, handleTyping, typingUsersText
+                    selectRole, createRoom, closeRoom, fetchRooms, joinRoom, sendMessage, sendAnnouncement, handleTyping, typingUsersText, formatTimestamp
                 };
             }
         }).mount('#app');

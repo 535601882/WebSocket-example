@@ -18,6 +18,22 @@ const PORT = 3000;
 // 这是我们当前阶段的“数据库”，用一个简单的对象变量代替 Redis
 const rooms = {};
 
+// 消息限流配置
+const MESSAGE_RATE_LIMIT = 5; // 每 MESSAGE_RATE_WINDOW_MS 允许发送的消息数量
+const MESSAGE_RATE_WINDOW_MS = 2000; // 消息限流时间窗口 (2秒)
+
+// 辅助函数：HTML 转义，防止 XSS 攻击
+const escapeHtml = (text) => {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>'"]/g, function(m) { return map[m]; });
+};
+
 // 心跳检测参数
 const PING_INTERVAL = 30 * 1000; // 每 30 秒发送一次 Ping
 const PING_TIMEOUT = 60 * 1000;  // 60 秒内未收到 Pong 则认为连接死亡
@@ -107,6 +123,9 @@ wss.on('connection', (ws, req) => {
         ws.isAlive = true;
         console.log(`收到客户端 ${ws.username || '未知'} 的 Pong 回复。`); // 添加日志
     });
+
+    // 为消息限流初始化
+    ws.messageTimestamps = []; // 存储消息发送时间戳
 
     // 监听来自客户端的消息
     ws.on('message', (message) => {
@@ -201,12 +220,27 @@ wss.on('connection', (ws, req) => {
 
             // 当收到客户端发送的聊天消息时
             case 'chat_message':
+                // 消息限流检查
+                const now = Date.now();
+                // 1. 过滤掉超出时间窗口的消息时间戳
+                ws.messageTimestamps = ws.messageTimestamps.filter(timestamp => now - timestamp < MESSAGE_RATE_WINDOW_MS);
+                // 2. 检查在时间窗口内的消息数量是否超过限制
+                if (ws.messageTimestamps.length >= MESSAGE_RATE_LIMIT) {
+                    console.warn(`用户 ${ws.username} 消息发送过快，已限流。`);
+                    ws.send(JSON.stringify({ type: 'error', message: '消息发送过快，请稍后再试。' }));
+                    return;
+                }
+                ws.messageTimestamps.push(now);
+
                 const senderRoomId = ws.roomId;
                 const room = rooms[senderRoomId];
 
                 // 确保发送者在一个有效的房间内
                 if (room) {
                     console.log(`[房间 ${senderRoomId}] 用户 ${ws.username} 说: ${parsedMessage.payload.content}`);
+
+                    // 对消息内容进行 HTML 转义，防止 XSS 攻击
+                    const escapedContent = escapeHtml(parsedMessage.payload.content);
 
                     // 构造要广播给所有人的消息体
                     const chatMessage = {
@@ -216,7 +250,8 @@ wss.on('connection', (ws, req) => {
                                 username: ws.username,
                                 isHost: ws.isHost || false // 附加发送者的身份信息
                             },
-                            content: parsedMessage.payload.content
+                            content: escapedContent,
+                            timestamp: Date.now() // 添加服务器时间戳
                         }
                     };
                     const messageString = JSON.stringify(chatMessage);
@@ -246,6 +281,16 @@ wss.on('connection', (ws, req) => {
 
             // 当主播发送公告时
             case 'host_announcement':
+                // 消息限流检查 (主播也受限流，但可以考虑放宽或单独配置)
+                const nowAnnounce = Date.now();
+                ws.messageTimestamps = ws.messageTimestamps.filter(timestamp => nowAnnounce - timestamp < MESSAGE_RATE_WINDOW_MS);
+                if (ws.messageTimestamps.length >= MESSAGE_RATE_LIMIT) {
+                    console.warn(`主播 ${ws.username} 公告发送过快，已限流。`);
+                    ws.send(JSON.stringify({ type: 'error', message: '公告发送过快，请稍后再试。' }));
+                    return;
+                }
+                ws.messageTimestamps.push(nowAnnounce);
+
                 const announcerRoomId = ws.roomId;
                 const announcerRoom = rooms[announcerRoomId];
 
@@ -253,10 +298,14 @@ wss.on('connection', (ws, req) => {
                 if (ws.isHost && announcerRoom) {
                     console.log(`[房间 ${announcerRoomId}] 主播 ${ws.username} 发布公告: ${parsedMessage.payload.content}`);
 
+                    // 对公告内容进行 HTML 转义，防止 XSS 攻击
+                    const escapedContent = escapeHtml(parsedMessage.payload.content);
+
                     const announcementMessage = {
                         type: 'new_announcement',
                         payload: {
-                            content: `📢 ${parsedMessage.payload.content}` // Add an icon for emphasis
+                            content: `📢 ${escapedContent}`,
+                            timestamp: Date.now() // 添加服务器时间戳
                         }
                     };
                     const messageString = JSON.stringify(announcementMessage);
