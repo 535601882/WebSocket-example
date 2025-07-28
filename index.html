@@ -1,73 +1,70 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>Native WebSocket Chat</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>直播聊天室 - 选择你的角色</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
-        body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
-        #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
-        #input:focus { outline: none; }
-        #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
-        #messages { list-style-type: none; margin: 0; padding: 0; }
-        #messages > li { padding: 0.5rem 1rem; }
-        #messages > li:nth-child(odd) { background: #efefef; }
-        .status { font-style: italic; color: #888; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        #app { text-align: center; }
+        .role-selection button {
+            font-size: 1.5rem;
+            padding: 1rem 2rem;
+            margin: 0 1rem;
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        .role-selection button:hover { background-color: #0056b3; transform: scale(1.05); }
+        .role-selection button:last-child { background-color: #28a745; }
+        .role-selection button:last-child:hover { background-color: #218838; }
     </style>
 </head>
 <body>
-    <ul id="messages"></ul>
-    <form id="form" action="">
-        <input id="input" autocomplete="off" /><button>Send</button>
-    </form>
-    <script>
-        const username = `user_${Math.random().toString(36).slice(2, 9)}`;
-        document.title = `${username} - WebSocket Chat`;
+    <div id="app">
+        <div v-if="!role" class="role-selection">
+            <h1>选择你的身份</h1>
+            <button @click="selectRole('host')">我是主播</button>
+            <button @click="selectRole('viewer')">我是观众</button>
+        </div>
 
-        // Connect to the WebSocket server, passing username as a query parameter
-        const ws = new WebSocket(`ws://localhost:3000?username=${username}`);
+        <!-- 主播界面将在这里渲染 -->
+        <div v-if="role === 'host'">
+            <h1>主播端 (开发中)</h1>
+        </div>
 
-        const form = document.getElementById('form');
-        const input = document.getElementById('input');
-        const messages = document.getElementById('messages');
+        <!-- 观众界面将在这里渲染 -->
+        <div v-if="role === 'viewer'">
+            <h1>观众端 (开发中)</h1>
+        </div>
+    </div>
 
-        ws.onopen = () => {
-            console.log('Connected to WebSocket server');
-        };
+    <script type="module">
+        const { createApp, ref } = Vue;
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            const item = document.createElement('li');
+        createApp({
+            setup() {
+                // 使用 ref 创建响应式变量来存储用户选择的角色
+                const role = ref(null); // 'host', 'viewer', or null
 
-            if (data.type === 'chat') {
-                item.textContent = `${data.username}: ${data.message}`;
-            } else if (data.type === 'status') {
-                item.textContent = data.message;
-                item.classList.add('status');
+                // 方法：当用户点击按钮时，更新角色状态
+                const selectRole = (selectedRole) => {
+                    console.log(`用户选择了: ${selectedRole}`);
+                    role.value = selectedRole;
+                };
+
+                // 将变量和方法返回给模板使用
+                return {
+                    role,
+                    selectRole
+                };
             }
-            
-            messages.appendChild(item);
-            window.scrollTo(0, document.body.scrollHeight);
-        };
-
-        ws.onclose = () => {
-            console.log('Disconnected from WebSocket server');
-            const item = document.createElement('li');
-            item.textContent = 'You have been disconnected.';
-            item.classList.add('status');
-            messages.appendChild(item);
-        };
-
-        ws.onerror = (error) => {
-            console.error('WebSocket Error:', error);
-        };
-
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            if (input.value && ws.readyState === WebSocket.OPEN) {
-                ws.send(input.value);
-                input.value = '';
-            }
-        });
+        }).mount('#app');
     </script>
 </body>
 </html>
