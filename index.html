@@ -7,9 +7,38 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; color: #333; }
-        #app { width: 100%; max-width: 1000px; /* Increased width */ height: 90vh; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: row; /* Changed to row */ }
+        #app { width: 100%; max-width: 1200px; height: 90vh; background: #000; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; flex-direction: row; overflow: hidden; }
+
+        .live-wrapper { display: flex; flex-direction: row; flex-grow: 1; height: 100%; }
+
+        /* This is the main container for video and the chat overlay */
+        .video-and-chat-area {
+            flex: 1;
+            position: relative; /* Establishes a positioning context for children */
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .video-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Or use 'cover' if you want to fill the space */
+        }
+
         .main-content { flex-grow: 1; display: flex; flex-direction: column; }
-        .center-container { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; }
+        .center-container { flex-grow: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; background-color: #fff; }
         button { font-size: 1.1rem; padding: 0.6rem 1.2rem; margin: 0.5rem; cursor: pointer; border: none; border-radius: 8px; color: white; transition: all 0.3s; }
         button:hover:not(:disabled) { transform: scale(1.05); }
         button:disabled { background-color: #6c757d; cursor: not-allowed; }
@@ -21,30 +50,67 @@
         .btn-danger:hover { background-color: #c82333; }
         .btn-warning { background-color: #ffc107; color: #212529; }
         .btn-warning:hover { background-color: #e0a800; }
-        .chat-container { position: relative; flex-grow: 1; display: flex; flex-direction: column; padding: 1rem; overflow: hidden; width: 100%; box-sizing: border-box; }
-        .chat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-        .chat-header .viewer-count { color: #6c757d; }
-        .messages { flex-grow: 1; overflow-y: auto; border: 1px solid #eee; padding: 1rem; margin-bottom: 1rem; list-style-type: none; }
-        .messages li { padding: 0.5rem; border-bottom: 1px solid #f0f0f0; word-wrap: break-word; }
-        .messages .system-message { text-align: center; color: #888; font-style: italic; }
-        .messages .announcement { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 5px; text-align: center; font-weight: bold; }
+
+        /* Chat overlay styles */
+        .chat-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 60%; /* Adjust height as needed */
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column-reverse; /* New messages appear at the bottom and scroll up */
+            padding: 1rem;
+            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 100%);
+            overflow: hidden;
+        }
+        .chat-header { display: none; } /* Hide the old header */
+
+        .messages {
+            overflow-y: auto;
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column-reverse; /* Makes messages stack from bottom */
+        }
+        .messages li {
+            padding: 0.25rem 0.5rem;
+            word-wrap: break-word;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .messages .system-message { text-align: left; color: #ffc107; font-style: italic; }
+        .messages .announcement { background-color: rgba(255, 243, 205, 0.2); color: #ffc107; border-radius: 5px; text-align: center; font-weight: bold; padding: 0.5rem; }
         .messages .chat-message .sender { font-weight: bold; }
-        .messages .chat-message .sender.host { color: #dc3545; }
-        .messages .chat-message .sender.viewer { color: #007bff; }
-        .message-input { display: flex; flex-direction: column; }
+        .messages .chat-message .sender.host { color: #f96854; }
+        .messages .chat-message .sender.viewer { color: #54baf9; }
+
+        .message-input { display: flex; flex-direction: column; margin-top: 1rem; }
         .message-input .input-row { display: flex; }
-        .message-input input { flex-grow: 1; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-        .message-input button { padding: 0.5rem 1rem; margin-left: 0.5rem; border-radius: 4px; }
-        .typing-indicator { font-size: 0.9rem; color: #6c757d; margin-top: 0.5rem; text-align: center; }
+        .message-input input {
+            flex-grow: 1;
+            padding: 0.75rem;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 20px;
+            background-color: rgba(0,0,0,0.5);
+            color: white;
+        }
+        .message-input input::placeholder { color: #ccc; }
+        .message-input button { padding: 0.75rem 1.2rem; margin-left: 0.5rem; border-radius: 20px; }
+
+        .typing-indicator { font-size: 0.9rem; color: #ddd; margin-top: 0.5rem; text-align: left; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); }
         .room-list ul { list-style: none; padding: 0; }
         .room-list li { background: #e9ecef; padding: 1rem; margin-bottom: 0.5rem; border-radius: 5px; cursor: pointer; }
         .room-list li:hover { background: #dee2e6; }
-        .sidebar { width: 200px; border-left: 1px solid #eee; padding: 1rem; overflow-y: auto; background-color: #f8f9fa; }
-        .sidebar h3 { margin-top: 0; }
+
+        .sidebar { width: 250px; border-left: 1px solid #333; padding: 1rem; overflow-y: auto; background-color: #1a1a1a; color: white; height: 100%; }
+        .sidebar h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 0.5rem; }
         .sidebar ul { list-style: none; padding: 0; }
         .sidebar li { padding: 0.25rem 0; }
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.8); display: flex; justify-content: center; align-items: center; text-align: center; backdrop-filter: blur(5px); }
-        .message-timestamp { font-size: 0.75em; color: #999; margin-left: 0.5em; }
+        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); display: flex; justify-content: center; align-items: center; text-align: center; backdrop-filter: blur(5px); color: white; }
+        .message-timestamp { font-size: 0.75em; color: #ccc; margin-left: 0.5em; }
     </style>
 </head>
 <body>
@@ -59,45 +125,44 @@
         <!-- 2. 主播端 -->
         <template v-if="role === 'host'">
             <div v-if="!roomInfo.id" class="center-container main-content">
-                <button @click="createRoom" class="btn-primary">创建直播间</button>
+                <button @click="createRoomAndStartBroadcast" class="btn-primary">创建直播间并开始直播</button>
             </div>
-            <div v-else class="main-content">
-                <div class="chat-container">
-                    <div class="chat-header">
-                        <h2>我的直播间</h2>
-                        <div class="viewer-count">在线观众: {{ viewerCount }}</div>
+            <div v-else class="live-wrapper">
+                <div class="video-and-chat-area">
+                    <div class="video-container">
+                        <video id="local-video" autoplay muted playsinline></video>
                     </div>
-                    <ul class="messages" ref="messagesContainer">
-                        <li v-for="(msg, index) in messages" :key="index" :class="msg.type">
-                            <div v-if="msg.type === 'system-message' || msg.type === 'announcement'">{{ msg.content }}</div>
-                            <div v-else-if="msg.type === 'chat-message'">
-                                <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
-                                <span>{{ msg.content }}</span>
-                                <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
+                    <div class="chat-container">
+                         <form @submit.prevent="sendMessage" class="message-input">
+                            <div class="input-row">
+                                <input v-model="newMessage" @input="handleTyping" type="text" placeholder="和观众说点什么..." required :disabled="isRoomClosed" />
+                                <button type="submit" class="btn-primary" :disabled="isRoomClosed">发送</button>
+                                <button @click.prevent="sendAnnouncement" class="btn-warning" :disabled="isRoomClosed">公告</button>
                             </div>
-                        </li>
-                    </ul>
-                    <form @submit.prevent="sendMessage" class="message-input">
-                        <div class="input-row">
-                            <input v-model="newMessage" @input="handleTyping" type="text" placeholder="和观众说点什么..." required :disabled="isRoomClosed" />
-                            <button type="submit" class="btn-primary" :disabled="isRoomClosed">发送</button>
-                            <button @click.prevent="sendAnnouncement" class="btn-warning" :disabled="isRoomClosed">公告</button>
+                            <div v-if="typingUsers.length > 0" class="typing-indicator">{{ typingUsersText }}</div>
+                        </form>
+                        <ul class="messages" ref="messagesContainer">
+                            <li v-for="(msg, index) in messages" :key="index" :class="msg.type">
+                                <div v-if="msg.type === 'system-message' || msg.type === 'announcement'">{{ msg.content }}</div>
+                                <div v-else-if="msg.type === 'chat-message'">
+                                    <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
+                                    <span>{{ msg.content }}</span>
+                                    <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
+                                </div>
+                            </li>
+                        </ul>
+                        <button @click="closeRoom" class="btn-danger" style="position: absolute; top: 1rem; right: 1rem;" :disabled="isRoomClosed">结束直播</button>
+                        <div v-if="isRoomClosed" class="overlay">
+                            <h2>直播已结束</h2>
                         </div>
-                        <div v-if="typingUsers.length > 0" class="typing-indicator">
-                            {{ typingUsersText }}
-                        </div>
-                    </form>
-                    <button @click="closeRoom" class="btn-danger" style="margin-top: 1rem;" :disabled="isRoomClosed">结束直播</button>
-                    <div v-if="isRoomClosed" class="overlay">
-                        <h2>直播已结束</h2>
                     </div>
                 </div>
-            </div>
-            <div v-if="roomInfo.id" class="sidebar">
-                <h3>在线用户</h3>
-                <ul>
-                    <li v-for="user in userList" :key="user">{{ user }}</li>
-                </ul>
+                <div class="sidebar">
+                    <h3>在线用户 ({{ viewerCount + 1 }})</h3>
+                    <ul>
+                        <li v-for="user in userList" :key="user">{{ user }}</li>
+                    </ul>
+                </div>
             </div>
         </template>
 
@@ -113,47 +178,46 @@
                     <button @click="fetchRooms">刷新列表</button>
                 </div>
             </div>
-            <div v-else class="main-content">
-                <div class="chat-container">
-                    <div class="chat-header">
-                        <h2>正在观看: {{ roomInfo.id }}</h2>
-                        <div class="viewer-count">在线观众: {{ viewerCount }}</div>
+            <div v-else class="live-wrapper">
+                <div class="video-and-chat-area">
+                    <div class="video-container">
+                        <video id="remote-video" autoplay playsinline></video>
                     </div>
-                    <ul class="messages" ref="messagesContainer">
-                         <li v-for="(msg, index) in messages" :key="index" :class="msg.type">
-                            <div v-if="msg.type === 'system-message' || msg.type === 'announcement'">{{ msg.content }}</div>
-                            <div v-else-if="msg.type === 'chat-message'">
-                                <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
-                                <span>{{ msg.content }}</span>
-                                <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
+                    <div class="chat-container">
+                        <form @submit.prevent="sendMessage" class="message-input">
+                            <div class="input-row">
+                                <input v-model="newMessage" @input="handleTyping" type="text" placeholder="和主播说点什么..." required :disabled="isRoomClosed" />
+                                <button type="submit" class="btn-primary" :disabled="isRoomClosed">发送</button>
                             </div>
-                        </li>
-                    </ul>
-                    <form @submit.prevent="sendMessage" class="message-input">
-                        <div class="input-row">
-                            <input v-model="newMessage" @input="handleTyping" type="text" placeholder="和主播说点什么..." required :disabled="isRoomClosed" />
-                            <button type="submit" class="btn-primary" :disabled="isRoomClosed">发送</button>
+                            <div v-if="typingUsers.length > 0" class="typing-indicator">{{ typingUsersText }}</div>
+                        </form>
+                        <ul class="messages" ref="messagesContainer">
+                             <li v-for="(msg, index) in messages" :key="index" :class="msg.type">
+                                <div v-if="msg.type === 'system-message' || msg.type === 'announcement'">{{ msg.content }}</div>
+                                <div v-else-if="msg.type === 'chat-message'">
+                                    <span class="sender" :class="msg.sender.isHost ? 'host' : 'viewer'">[{{ msg.sender.isHost ? '主播' : '观众' }}] {{ msg.sender.username }}:</span>
+                                    <span>{{ msg.content }}</span>
+                                    <span class="message-timestamp">{{ formatTimestamp(msg.timestamp) }}</span>
+                                </div>
+                            </li>
+                        </ul>
+                        <div v-if="isRoomClosed" class="overlay">
+                            <h2>直播已结束，感谢观看！</h2>
                         </div>
-                        <div v-if="typingUsers.length > 0" class="typing-indicator">
-                            {{ typingUsersText }}
-                        </div>
-                    </form>
-                    <div v-if="isRoomClosed" class="overlay">
-                        <h2>直播已结束，感谢观看！</h2>
                     </div>
                 </div>
-            </div>
-            <div v-if="roomInfo.id" class="sidebar">
-                <h3>在线用户</h3>
-                <ul>
-                    <li v-for="user in userList" :key="user">{{ user }}</li>
-                </ul>
+                <div class="sidebar">
+                    <h3>在线用户 ({{ viewerCount + 1 }})</h3>
+                    <ul>
+                        <li v-for="user in userList" :key="user">{{ user }}</li>
+                    </ul>
+                </div>
             </div>
         </template>
     </div>
 
     <script type="module">
-        const { createApp, ref, reactive, nextTick, computed } = Vue;
+        const { createApp, ref, reactive, nextTick, computed, watch } = Vue;
 
         createApp({
             setup() {
@@ -171,39 +235,45 @@
                 const typingUsers = reactive([]);
                 const messagesContainer = ref(null);
 
-                let typingTimeout = null;
+                // WebRTC 状态
+                const localStream = ref(null);
+                const peerConnections = reactive(new Map());
+                const hostUsername = ref(null); // 观众端需要知道主播的用户名
 
-                // 重连机制相关变量
+                let typingTimeout = null;
                 let reconnectAttempts = 0;
-                const MAX_RECONNECT_ATTEMPTS = 10; // 最大重连尝试次数
-                const INITIAL_RECONNECT_DELAY = 1000; // 初始重连延迟 1 秒
-                const MAX_RECONNECT_DELAY = 30000; // 最大重连延迟 30 秒
+                const MAX_RECONNECT_ATTEMPTS = 10;
+                const INITIAL_RECONNECT_DELAY = 1000;
+                const MAX_RECONNECT_DELAY = 30000;
+
+                const ICE_SERVERS = [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ];
 
                 // ================== 计算属性 ==================
                 const typingUsersText = computed(() => {
                     if (typingUsers.length === 0) return '';
                     const othersTyping = typingUsers.filter(u => u !== username.value);
                     if (othersTyping.length === 0) return '';
-
-                    if (othersTyping.length === 1) {
-                        return `${othersTyping[0]} 正在输入...`;
-                    } else if (othersTyping.length === 2) {
-                        return `${othersTyping[0]} 和 ${othersTyping[1]} 正在输入...`;
-                    } else {
-                        return `${othersTyping.slice(0, 2).join('、')} 等 ${othersTyping.length} 人正在输入...`;
-                    }
+                    if (othersTyping.length === 1) return `${othersTyping[0]} 正在输入...`;
+                    if (othersTyping.length === 2) return `${othersTyping[0]} 和 ${othersTyping[1]} 正在输入...`;
+                    return `${othersTyping.slice(0, 2).join('、')} 等 ${othersTyping.length} 人正在输入...`;
                 });
 
                 // ================== 通用方法 ==================
                 const scrollToBottom = () => {
                     nextTick(() => {
                         const container = messagesContainer.value;
-                        if (container) container.scrollTop = container.scrollHeight;
+                        if (container) container.scrollTop = 0; // Scroll to top because of flex-direction: column-reverse
                     });
                 };
 
                 const addMessage = (msg) => {
-                    messages.push(msg);
+                    messages.unshift(msg); // Add to the beginning because of flex-direction: column-reverse
+                    if (messages.length > 100) {
+                        messages.pop(); // Keep the list from growing indefinitely
+                    }
                     scrollToBottom();
                 };
 
@@ -217,51 +287,47 @@
                     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 };
 
-                const initWebSocket = () => {
-                    // 如果已经有连接，先关闭
-                    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
-                        ws.value.close();
+                const sendSignal = (type, payload, target) => {
+                    if (ws.value?.readyState === WebSocket.OPEN) {
+                        ws.value.send(JSON.stringify({ type, payload, target }));
                     }
+                };
+
+                const initWebSocket = () => {
+                    if (ws.value && ws.value.readyState === WebSocket.OPEN) ws.value.close();
 
                     const socket = new WebSocket(`ws://${window.location.host}`);
+                    ws.value = socket;
+
                     socket.onopen = () => {
                         console.log('WebSocket 连接成功！');
-                        reconnectAttempts = 0; // 重置重连尝试次数
-                        // 如果是观众，并且之前已经加入了房间，尝试重新加入
-                        if (role.value === 'viewer' && roomInfo.id) {
-                            joinRoom(roomInfo.id); // 重新发送加入房间请求
-                        } else if (role.value === 'host' && roomInfo.id) {
-                            // 主播重连后，需要重新创建房间（或者说，服务器会识别到是同一个主播的重连）
-                            // 这里简化处理，如果主播重连，就当做是新开播，或者提示手动创建
-                            // 实际应用中，主播端重连逻辑会更复杂，可能需要服务器端保存会话状态
-                            addSystemMessage('主播端连接恢复，请重新创建直播间或等待服务器同步状态。');
-                            roomInfo.id = null; // 清除房间信息，让主播重新创建
+                        reconnectAttempts = 0;
+                        if (role.value === 'viewer' && roomInfo.id) joinRoom(roomInfo.id);
+                        else if (role.value === 'host' && roomInfo.id) {
+                            addSystemMessage('主播端连接恢复，请重新创建直播间。');
+                            roomInfo.id = null;
                         }
                     };
+
                     socket.onclose = () => {
                         console.log('WebSocket 连接已关闭');
-                        // 清除任何正在输入的定时器，防止重连后状态不一致
-                        if (typingTimeout) {
-                            clearTimeout(typingTimeout);
-                            typingTimeout = null;
-                        }
+                        if (typingTimeout) clearTimeout(typingTimeout);
+                        peerConnections.forEach(pc => pc.close());
+                        peerConnections.clear();
 
-                        // 如果不是房间已关闭状态，尝试重连
-                        if (!isRoomClosed.value) {
-                            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                                const delay = Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
-                                addSystemMessage(`连接断开，尝试在 ${delay / 1000} 秒后重连... (第 ${reconnectAttempts + 1} 次尝试)`);
-                                setTimeout(() => {
-                                    reconnectAttempts++;
-                                    initWebSocket();
-                                }, delay);
-                            } else {
-                                addSystemMessage('连接失败，请检查网络或刷新页面。');
-                                isRoomClosed.value = true; // 标记为永久断开
-                            }
+                        if (!isRoomClosed.value && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                            // 指数退避重连机制，减轻服务器压力
+                            const delay = Math.min(INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+                            addSystemMessage(`连接断开，${delay / 1000}秒后重连... (第 ${reconnectAttempts + 1} 次)`);
+                            setTimeout(() => { reconnectAttempts++; initWebSocket(); }, delay);
+                        } else if (!isRoomClosed.value) {
+                            addSystemMessage('重连失败，请刷新页面。');
+                            isRoomClosed.value = true;
                         }
                     };
+
                     socket.onerror = (error) => console.error('WebSocket 错误:', error);
+
                     socket.onmessage = (event) => {
                         const data = JSON.parse(event.data);
                         console.log('收到服务器消息:', data);
@@ -269,10 +335,12 @@
                         switch (data.type) {
                             case 'room_created':
                                 roomInfo.id = data.roomId;
+                                username.value = data.username; // 主播从服务器获取分配的用户名
                                 addSystemMessage(`房间创建成功！ID: ${data.roomId}`);
                                 break;
                             case 'join_success':
                                 roomInfo.id = data.roomId;
+                                hostUsername.value = data.hostUsername;
                                 addSystemMessage(`成功加入房间 ${data.roomId}`);
                                 break;
                             case 'system_message':
@@ -280,9 +348,7 @@
                                 break;
                             case 'new_chat_message':
                                 addMessage({ ...data.payload, type: 'chat-message' });
-                                if (typingUsers.includes(username.value)) {
-                                    sendStopTyping();
-                                }
+                                if (typingUsers.includes(username.value)) sendStopTyping();
                                 break;
                             case 'new_announcement':
                                 addMessage({ ...data.payload, type: 'announcement' });
@@ -290,94 +356,209 @@
                             case 'room_closed':
                                 addSystemMessage(data.payload.message);
                                 isRoomClosed.value = true;
-                                // 房间关闭后，不再尝试重连
+                                if (localStream.value) {
+                                    localStream.value.getTracks().forEach(track => track.stop());
+                                    localStream.value = null;
+                                }
                                 if (ws.value) ws.value.close();
                                 break;
                             case 'viewer_count_update':
                                 viewerCount.value = data.payload.count;
                                 break;
                             case 'user_list_update':
+                                const oldUserList = [...userList];
                                 userList.splice(0, userList.length, ...data.payload.users);
+                                if (role.value === 'host') {
+                                    handleUserChanges(oldUserList, data.payload.users);
+                                }
                                 break;
                             case 'typing_status_update':
                                 typingUsers.splice(0, typingUsers.length, ...data.payload.typingUsers);
+                                break;
+                            // --- WebRTC Signalling Handlers ---
+                            case 'webrtc_offer':
+                                if (role.value === 'viewer') handleOffer(data.sender, data.payload);
+                                break;
+                            case 'webrtc_answer':
+                                if (role.value === 'host') handleAnswer(data.sender, data.payload);
+                                break;
+                            case 'webrtc_ice_candidate':
+                                handleIceCandidate(data.sender, data.payload);
                                 break;
                             case 'error':
                                 alert(`错误: ${data.message}`);
                                 break;
                         }
                     };
-                    ws.value = socket;
                 };
 
                 const selectRole = (selectedRole) => {
                     role.value = selectedRole;
-                    username.value = `${selectedRole}_${Math.random().toString(36).slice(2, 7)}`;
                     initWebSocket();
                     if (selectedRole === 'viewer') {
+                        username.value = `viewer_${Math.random().toString(36).slice(2, 7)}`;
                         fetchRooms();
                     }
                 };
 
                 const sendMessage = () => {
                     if (!newMessage.value.trim() || isRoomClosed.value) return;
-                    if (ws.value?.readyState === WebSocket.OPEN) {
-                        const message = { type: 'chat_message', payload: { content: newMessage.value } };
-                        ws.value.send(JSON.stringify(message));
-                        newMessage.value = '';
-                        sendStopTyping();
-                    } else {
-                        addSystemMessage('发送失败：未连接到服务器。');
-                    }
+                    sendSignal('chat_message', { content: newMessage.value });
+                    newMessage.value = '';
+                    sendStopTyping();
                 };
 
-                const sendStartTyping = () => {
-                    if (ws.value?.readyState === WebSocket.OPEN && !typingUsers.includes(username.value)) {
-                        ws.value.send(JSON.stringify({ type: 'start_typing' }));
-                    }
-                };
-
-                const sendStopTyping = () => {
-                    if (ws.value?.readyState === WebSocket.OPEN) {
-                        ws.value.send(JSON.stringify({ type: 'stop_typing' }));
-                    }
-                };
+                const sendStartTyping = () => ws.value?.send(JSON.stringify({ type: 'start_typing' }));
+                const sendStopTyping = () => ws.value?.send(JSON.stringify({ type: 'stop_typing' }));
 
                 const handleTyping = () => {
                     if (isRoomClosed.value) return;
-
-                    if (!typingUsers.includes(username.value)) {
-                        sendStartTyping();
-                    }
-
-                    if (typingTimeout) {
-                        clearTimeout(typingTimeout);
-                    }
-
-                    typingTimeout = setTimeout(() => {
-                        sendStopTyping();
-                    }, 1500);
+                    if (!typingUsers.includes(username.value)) sendStartTyping();
+                    if (typingTimeout) clearTimeout(typingTimeout);
+                    typingTimeout = setTimeout(sendStopTyping, 1500);
                 };
 
-                // ================== 主播方法 ==================
-                const createRoom = () => {
+                // ================== WebRTC Core Logic ==================
+
+                const createPeerConnection = (targetUsername) => {
+                    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+                    // 当 ICE 候选者被发现时触发此回调
+                    pc.onicecandidate = (event) => {
+                      // 检查是否获取到了有效的 ICE 候选者
+                      // 当收集过程完成时，event.candidate 会是 null
+                        if (event.candidate) {
+                          // 通过信令服务器将 ICE 候选者发送给对方
+                          // 这样对方就可以尝试通过这个候选地址与我们建立连接
+                          // targetUsername 参数指定了消息的接收方
+                          sendSignal('webrtc_ice_candidate', event.candidate, targetUsername);
+                        }
+                    };
+
+                    // ICE 连接状态改变时触发此回调
+                    pc.oniceconnectionstatechange = () => console.log(`ICE connection state for ${targetUsername}: ${pc.iceConnectionState}`);
+                    // 当远程视频流添加到 RTCPeerConnection 对象中时触发此回调
+                    if (role.value === 'viewer') {
+                        pc.ontrack = (event) => {
+                            const remoteVideo = document.getElementById('remote-video');
+                            if (remoteVideo.srcObject !== event.streams[0]) {
+                                remoteVideo.srcObject = event.streams[0];
+                                console.log('Received remote stream, setting video srcObject');
+                            }
+                        };
+                    }
+
+                    // 添加本地媒体流
+                    if (localStream.value) {
+                        localStream.value.getTracks().forEach(track => {
+                            pc.addTrack(track, localStream.value);
+                        });
+                    }
+                    // 创建 RTCPeerConnection 实例并保存起来
+                    peerConnections.set(targetUsername, pc);
+                    return pc;
+                };
+
+                // --- Host Methods ---
+                const startBroadcast = async () => {
+                    try {
+                        localStream.value = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                        const localVideo = document.getElementById('local-video');
+                        localVideo.srcObject = localStream.value;
+                        addSystemMessage('摄像头和麦克风已启动，直播开始！');
+                    } catch (error) {
+                        console.error('getUserMedia error:', error);
+                        addSystemMessage('无法访问摄像头或麦克风，请检查权限。');
+                        isRoomClosed.value = true;
+                    }
+                };
+
+                const createRoomAndStartBroadcast = () => {
                     if (ws.value?.readyState === WebSocket.OPEN) {
                         ws.value.send(JSON.stringify({ type: 'create_room' }));
+                        startBroadcast();
                     } else {
                         alert('WebSocket 未连接');
                     }
                 };
 
+                const handleUserChanges = (oldList, newList) => {
+                    // 识别新加入的用户
+                    const newUsers = newList.filter(u => !oldList.includes(u) && u !== username.value);
+                    // 识别离开的用户
+                    const leftUsers = oldList.filter(u => !newList.includes(u) && u !== username.value);
+
+                    // 为新用户创建连接并发送 offer
+                    newUsers.forEach(user => {
+                        console.log(`New viewer joined: ${user}, creating peer connection.`);
+                        const pc = createPeerConnection(user);
+                        pc.createOffer()
+                            .then(offer => pc.setLocalDescription(offer))
+                            .then(() => {
+                                sendSignal('webrtc_offer', pc.localDescription, user);
+                            })
+                            .catch(e => console.error('Error creating offer:', e));
+                    });
+
+                    leftUsers.forEach(user => {
+                        console.log(`Viewer left: ${user}, closing peer connection.`);
+                        if (peerConnections.has(user)) {
+                            peerConnections.get(user).close();
+                            peerConnections.delete(user);
+                        }
+                    });
+                };
+
+                const handleAnswer = async (sender, answer) => {
+                    const pc = peerConnections.get(sender);
+                    if (pc) {
+                        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+                        console.log(`Set remote description for ${sender}`);
+                    }
+                };
+
+                // --- Viewer Methods ---
+              /**
+               * 处理来自其他用户的 WebRTC Offer
+               * 这是 WebRTC 连接建立过程中的第二步，由接收 Offer 的一方执行
+               * @param {string} sender - 发送 Offer 的用户名
+               * @param {object} offer - 收到的 Offer SDP 描述
+               */
+                const handleOffer = async (sender, offer) => {
+                // 为发送方创建一个新的 RTCPeerConnection 实例
+                // 这将建立与发送方的点对点连接
+                    const pc = createPeerConnection(sender);
+                // 设置远程描述（即发送方的 Offer）
+                // 这告诉浏览器对方支持的媒体格式和连接参数
+                    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                // 基于远程描述和本地能力创建 Answer
+                // Answer 包含了本地的媒体能力和连接参数
+                    const answer = await pc.createAnswer();
+                // 设置本地描述（即刚刚创建的 Answer）
+                // 这告诉浏览器本地将使用什么媒体格式和连接参数
+                    await pc.setLocalDescription(answer);
+                // 通过信令服务器将 Answer 发送回给发送方
+                // 发送方收到后会调用 setRemoteDescription
+                    sendSignal('webrtc_answer', pc.localDescription, sender);
+                    console.log(`Received offer from ${sender}, sent answer.`);
+                };
+
+                // --- Common Methods ---
+                const handleIceCandidate = async (sender, candidate) => {
+                    const pc = peerConnections.get(sender) || (role.value === 'viewer' && peerConnections.get(hostUsername.value));
+                    if (pc) {
+                        try {
+                            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        } catch (e) {
+                            console.error('Error adding received ice candidate', e);
+                        }
+                    }
+                };
+
                 const sendAnnouncement = () => {
                     if (!newMessage.value.trim() || isRoomClosed.value) return;
-                    if (ws.value?.readyState === WebSocket.OPEN) {
-                        const message = { type: 'host_announcement', payload: { content: newMessage.value } };
-                        ws.value.send(JSON.stringify(message));
-                        newMessage.value = '';
-                        sendStopTyping();
-                    } else {
-                        addSystemMessage('发送失败：未连接到服务器。');
-                    }
+                    sendSignal('host_announcement', { content: newMessage.value });
+                    newMessage.value = '';
+                    sendStopTyping();
                 };
 
                 const closeRoom = () => {
@@ -386,7 +567,6 @@
                     }
                 };
 
-                // ================== 观众方法 ==================
                 const fetchRooms = async () => {
                     try {
                         const response = await fetch('/api/rooms');
@@ -410,7 +590,7 @@
 
                 return {
                     role, username, roomInfo, messages, activeRooms, userList, newMessage, isRoomClosed, viewerCount, typingUsers, messagesContainer,
-                    selectRole, createRoom, closeRoom, fetchRooms, joinRoom, sendMessage, sendAnnouncement, handleTyping, typingUsersText, formatTimestamp
+                    selectRole, createRoomAndStartBroadcast, closeRoom, fetchRooms, joinRoom, sendMessage, sendAnnouncement, handleTyping, typingUsersText, formatTimestamp
                 };
             }
         }).mount('#app');

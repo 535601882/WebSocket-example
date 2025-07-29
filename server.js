@@ -38,6 +38,23 @@ const escapeHtml = (text) => {
 const PING_INTERVAL = 30 * 1000; // 每 30 秒发送一次 Ping
 const PING_TIMEOUT = 60 * 1000;  // 60 秒内未收到 Pong 则认为连接死亡
 
+// 辅助函数：根据用户名查找客户端 WebSocket 实例
+const findClientByUsername = (username) => {
+    for (const roomId in rooms) {
+        const room = rooms[roomId];
+        if (room.host && room.host.username === username) {
+            return room.host;
+        }
+        for (const viewer of room.viewers) {
+            if (viewer.username === username) {
+                return viewer;
+            }
+        }
+    }
+    return null;
+};
+
+
 // 辅助函数：向指定房间广播观众数量
 const broadcastViewerCount = (room) => {
     if (!room || !room.host || room.host.readyState !== room.host.OPEN) return;
@@ -160,6 +177,7 @@ wss.on('connection', (ws, req) => {
                 const successMessage = {
                     type: 'room_created',
                     roomId: roomId,
+                    username: ws.username, // 把分配的用户名也发给主播
                     message: `房间创建成功！ID: ${roomId}`
                 };
                 ws.send(JSON.stringify(successMessage));
@@ -185,7 +203,7 @@ wss.on('connection', (ws, req) => {
                     ws.username = username; // 记录该观众的用户名
 
                     // 告知该观众加入成功
-                    ws.send(JSON.stringify({ type: 'join_success', roomId: roomIdToJoin }));
+                    ws.send(JSON.stringify({ type: 'join_success', roomId: roomIdToJoin, hostUsername: roomToJoin.host.username }));
 
                     // 构建欢迎消息，并广播给房间里的所有人
                     const welcomeMessage = {
@@ -265,6 +283,26 @@ wss.on('connection', (ws, req) => {
                             viewer.send(messageString);
                         }
                     });
+                }
+                break;
+
+            // --- WebRTC 信令转发 ---
+            case 'webrtc_offer':
+            case 'webrtc_answer':
+            case 'webrtc_ice_candidate':
+                const { target, payload } = parsedMessage;
+                const recipient = findClientByUsername(target);
+
+                if (recipient && recipient.readyState === recipient.OPEN) {
+                    console.log(`转发 ${parsedMessage.type} 从 ${ws.username} 到 ${target}`);
+                  // 将信令消息转发给目标用户
+                    recipient.send(JSON.stringify({
+                        type: parsedMessage.type,
+                        sender: ws.username,
+                        payload: payload
+                    }));
+                } else {
+                    console.warn(`无法转发 ${parsedMessage.type}：目标用户 ${target} 未找到或连接已关闭。`);
                 }
                 break;
 
